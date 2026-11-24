@@ -2,6 +2,16 @@ name: Build custom clients
 
 on:
   workflow_dispatch:
+    inputs:
+      targets:
+        description: "Which jobs to run"
+        type: choice
+        options:
+          - all
+          - android
+          - linux
+          - windows
+        default: all
   push:
     tags:
       - "v*"
@@ -13,6 +23,7 @@ concurrency:
 jobs:
   android:
     runs-on: ubuntu-26.04
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.targets == 'all' || github.event.inputs.targets == 'android'
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
@@ -22,6 +33,13 @@ jobs:
       - uses: ./.github/actions/free_up_space
       - uses: dtolnay/rust-toolchain@stable
       - run: flutter pub get
+      - name: Generate placeholder signing key
+        run: |
+          keytool -genkeypair -v -keystore android/custom.keystore \
+            -storetype PKCS12 -storepass fluffychatCustom \
+            -alias fluffychatCustom -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=FluffyChat Custom Build"
+          printf 'storePassword=fluffychatCustom\nkeyPassword=fluffychatCustom\nkeyAlias=fluffychatCustom\nstoreFile=../custom.keystore\n' > android/key.properties
       - name: Build APK
         run: flutter build apk --release
       - uses: actions/upload-artifact@v7
@@ -36,6 +54,7 @@ jobs:
       matrix:
         arch: [x64, arm64]
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-26.04-arm' || 'ubuntu-latest' }}
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.targets == 'all' || github.event.inputs.targets == 'linux'
     steps:
       - uses: actions/checkout@v7
       - name: Install GTK dependencies
@@ -45,9 +64,17 @@ jobs:
             libblkid-dev liblzma-dev libjsoncpp-dev libsecret-1-dev libsecret-1-0 \
             libssl-dev libwebkit2gtk-4.1-dev
       - uses: subosito/flutter-action@v2
+        if: matrix.arch == 'x64'
         with:
           flutter-version-file: .fvmrc
           cache: true
+      - name: Install Flutter from git (arm64)
+        if: matrix.arch == 'arm64'
+        run: |
+          V=$(python3 -c "import json;print(json.load(open('.fvmrc'))['flutter'])")
+          git clone --branch "$V" https://github.com/flutter/flutter.git
+          echo "$PWD/flutter/bin" >> $GITHUB_PATH
+          ./flutter/bin/flutter --version
       - uses: dtolnay/rust-toolchain@stable
       - run: flutter pub get
       - name: Build Linux bundle
@@ -64,6 +91,7 @@ jobs:
 
   windows:
     runs-on: windows-latest
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.targets == 'all' || github.event.inputs.targets == 'windows'
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
