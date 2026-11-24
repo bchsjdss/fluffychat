@@ -20,6 +20,7 @@ import 'package:fluffychat/pages/chat/trust_user_key_dialog.dart';
 import 'package:fluffychat/pages/chat/utils/web_file_to_x_file.dart';
 import 'package:fluffychat/pages/chat_details/chat_details.dart';
 import 'package:fluffychat/utils/adaptive_bottom_sheet.dart';
+import 'package:fluffychat/utils/bot_menu.dart';
 import 'package:fluffychat/utils/error_reporter.dart';
 import 'package:fluffychat/utils/file_selector.dart';
 import 'package:fluffychat/utils/matrix_live_kit_calls/matrix_live_kit_call.dart';
@@ -761,19 +762,27 @@ class ChatController extends State<ChatPageWithRoom>
     prefs.remove('draft_$roomId');
     var parseCommands = true;
 
-    final commandMatch = RegExp(r'^\/(\w+)').firstMatch(sendController.text);
-    if (commandMatch != null &&
-        !sendingClient.commands.keys.contains(commandMatch[1]!.toLowerCase())) {
-      final l10n = L10n.of(context);
-      final dialogResult = await showOkCancelAlertDialog(
-        context: context,
-        title: l10n.commandInvalid,
-        message: l10n.commandMissing(commandMatch[0]!),
-        okLabel: l10n.sendAsText,
-        cancelLabel: l10n.cancel,
-      );
-      if (dialogResult == OkCancelResult.cancel) return;
-      parseCommands = false;
+    final commandMatch = RegExp(
+      r'^\/([\w.-]+)',
+    ).firstMatch(sendController.text);
+    if (commandMatch != null) {
+      final commandName = commandMatch[1]!.toLowerCase();
+      if (BotMenu.of(room).containsName(commandName)) {
+        // The server lists this command. Skip the local parser and send the
+        // text as it is, so the bot on the server side gets it.
+        parseCommands = false;
+      } else if (!sendingClient.commands.keys.contains(commandName)) {
+        final l10n = L10n.of(context);
+        final dialogResult = await showOkCancelAlertDialog(
+          context: context,
+          title: l10n.commandInvalid,
+          message: l10n.commandMissing(commandMatch[0]!),
+          okLabel: l10n.sendAsText,
+          cancelLabel: l10n.cancel,
+        );
+        if (dialogResult == OkCancelResult.cancel) return;
+        parseCommands = false;
+      }
     }
 
     if (currentlyTyping) {

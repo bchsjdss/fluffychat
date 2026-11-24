@@ -8,6 +8,7 @@ import 'package:fluffychat/config/app_config.dart';
 import 'package:fluffychat/config/setting_keys.dart';
 import 'package:fluffychat/l10n/l10n.dart';
 import 'package:fluffychat/pages/chat/trust_user_key_dialog.dart';
+import 'package:fluffychat/utils/bot_menu.dart';
 import 'package:fluffychat/utils/markdown_context_builder.dart';
 import 'package:fluffychat/utils/platform_infos.dart';
 import 'package:fluffychat/widgets/mxc_image.dart';
@@ -64,10 +65,25 @@ class InputBar extends StatelessWidget {
     final ret = <Map<String, String?>>[];
     const maxResults = 30;
 
-    final commandMatch = RegExp(r'^/(\w*)$').firstMatch(searchText);
+    final commandMatch = RegExp(r'^/([\w.-]*)$').firstMatch(searchText);
     if (commandMatch != null) {
       final commandSearch = commandMatch[1]!.toLowerCase();
+      // Server side menu comes first: the server is the source of truth for
+      // the commands that it accepts.
+      final botMenu = BotMenu.of(room);
+      final knownNames = <String>{};
+      for (final command in botMenu.search(commandSearch)) {
+        knownNames.add(command.name);
+        ret.add({
+          'type': 'bot_command',
+          'name': command.name,
+          'cmd': command.display,
+          'desc': command.description,
+        });
+        if (ret.length > maxResults) return ret;
+      }
       for (final command in room.client.commands.keys) {
+        if (knownNames.contains(command.toLowerCase())) continue;
         if (command.contains(commandSearch)) {
           ret.add({'type': 'command', 'name': command});
         }
@@ -225,6 +241,24 @@ class InputBar extends StatelessWidget {
   ) {
     final theme = Theme.of(context);
     const size = 30.0;
+    if (suggestion['type'] == 'bot_command') {
+      final desc = suggestion['desc'] ?? '';
+      return ListTile(
+        onTap: () => onSelected(suggestion),
+        title: Text(
+          suggestion['cmd'] ?? '',
+          style: const TextStyle(fontFamily: 'RobotoMono'),
+        ),
+        subtitle: desc.isEmpty
+            ? null
+            : Text(
+                desc,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall,
+              ),
+      );
+    }
     if (suggestion['type'] == 'command') {
       final command = suggestion['name']!;
       final hint = commandHint(L10n.of(context), command);
@@ -331,6 +365,14 @@ class InputBar extends StatelessWidget {
         ? ''
         : controller!.text.substring(controller!.selection.baseOffset + 1);
     var insertText = '';
+    if (suggestion['type'] == 'bot_command') {
+      // The server menu entry already holds the leading slash.
+      insertText = '${suggestion['cmd']!} ';
+      startText = replaceText.replaceAllMapped(
+        RegExp(r'^(/[\w.-]*)$'),
+        (Match m) => insertText,
+      );
+    }
     if (suggestion['type'] == 'command') {
       insertText = '${suggestion['name']!} ';
       startText = replaceText.replaceAllMapped(

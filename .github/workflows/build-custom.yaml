@@ -1,0 +1,87 @@
+name: Build custom clients
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: build_custom_${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version-file: .fvmrc
+          cache: true
+      - uses: ./.github/actions/free_up_space
+      - uses: dtolnay/rust-toolchain@stable
+      - run: flutter pub get
+      - name: Build APK
+        run: flutter build apk --release
+      - uses: actions/upload-artifact@v7
+        with:
+          name: fluffychat-android-apk
+          path: build/app/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-26.04-arm' || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install GTK dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev \
+            libblkid-dev liblzma-dev libjsoncpp-dev libsecret-1-dev libsecret-1-0 \
+            libssl-dev libwebkit2gtk-4.1-dev
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version-file: .fvmrc
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
+      - run: flutter pub get
+      - name: Build Linux bundle
+        run: flutter build linux --release --target-platform linux-${{ matrix.arch }}
+      - name: Archive
+        run: |
+          tar -czf fluffychat-linux-${{ matrix.arch }}.tar.gz \
+            -C build/linux/${{ matrix.arch }}/release/bundle .
+      - uses: actions/upload-artifact@v7
+        with:
+          name: fluffychat-linux-${{ matrix.arch }}
+          path: fluffychat-linux-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version-file: .fvmrc
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
+      - run: choco install innosetup -y
+      - run: flutter pub get
+      - name: Build Windows release
+        run: flutter build windows --release
+      - name: Package installer and portable zip
+        shell: pwsh
+        run: ./scripts/package-windows.ps1 -BuildMode Release
+      - uses: actions/upload-artifact@v7
+        with:
+          name: fluffychat-windows
+          path: |
+            build/windows/installer/fluffychat-windows-x64-setup.exe
+            build/windows/installer/fluffychat-windows-x64.zip
+          if-no-files-found: error
