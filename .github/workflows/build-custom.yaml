@@ -26,7 +26,6 @@ concurrency:
 jobs:
   quality:
     runs-on: ubuntu-26.04
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.targets == 'all'
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
@@ -40,18 +39,32 @@ jobs:
         run: |
           dart format --output=none --set-exit-if-changed \
             lib/utils/bot_menu.dart \
+            lib/utils/bot_card.dart \
             lib/pages/chat/input_bar.dart \
             lib/pages/chat/chat.dart \
-            test/bot_menu_test.dart
+            lib/pages/chat/events/bot_card.dart \
+            lib/pages/chat/events/message.dart \
+            lib/pages/chat/events/message_content.dart \
+            lib/utils/matrix_sdk_extensions/filtered_timeline_extension.dart \
+            test/bot_menu_test.dart \
+            test/bot_card_test.dart
       - name: Analyze changed files
         run: |
           flutter analyze \
             lib/utils/bot_menu.dart \
+            lib/utils/bot_card.dart \
             lib/pages/chat/input_bar.dart \
             lib/pages/chat/chat.dart \
-            test/bot_menu_test.dart
-      - name: Bot menu unit tests
-        run: flutter test test/bot_menu_test.dart
+            lib/pages/chat/events/bot_card.dart \
+            lib/pages/chat/events/message.dart \
+            lib/pages/chat/events/message_content.dart \
+            lib/utils/matrix_sdk_extensions/filtered_timeline_extension.dart \
+            test/bot_menu_test.dart \
+            test/bot_card_test.dart
+      - name: Bot menu and bot card unit tests
+        run: |
+          flutter test test/bot_menu_test.dart
+          flutter test test/bot_card_test.dart
 
   android:
     runs-on: ubuntu-26.04
