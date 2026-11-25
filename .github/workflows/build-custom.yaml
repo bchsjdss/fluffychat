@@ -16,11 +16,43 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: write
+
 concurrency:
   group: build_custom_${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  quality:
+    runs-on: ubuntu-26.04
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.targets == 'all'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version-file: .fvmrc
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
+      - run: flutter pub get
+      - name: Format check (report only)
+        continue-on-error: true
+        run: |
+          dart format --output=none --set-exit-if-changed \
+            lib/utils/bot_menu.dart \
+            lib/pages/chat/input_bar.dart \
+            lib/pages/chat/chat.dart \
+            test/bot_menu_test.dart
+      - name: Analyze changed files
+        run: |
+          flutter analyze \
+            lib/utils/bot_menu.dart \
+            lib/pages/chat/input_bar.dart \
+            lib/pages/chat/chat.dart \
+            test/bot_menu_test.dart
+      - name: Bot menu unit tests
+        run: flutter test test/bot_menu_test.dart
+
   android:
     runs-on: ubuntu-26.04
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.targets == 'all' || github.event.inputs.targets == 'android'
@@ -32,20 +64,59 @@ jobs:
           cache: true
       - uses: ./.github/actions/free_up_space
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: android
       - run: flutter pub get
-      - name: Generate placeholder signing key
+      - name: Configure APK signing
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          keytool -genkeypair -v -keystore android/custom.keystore \
-            -storetype PKCS12 -storepass fluffychatCustom \
-            -alias fluffychatCustom -keyalg RSA -keysize 2048 -validity 10000 \
-            -dname "CN=FluffyChat Custom Build"
-          printf 'storePassword=fluffychatCustom\nkeyPassword=fluffychatCustom\nkeyAlias=fluffychatCustom\nstoreFile=../custom.keystore\n' > android/key.properties
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "Using the keystore from repository secrets"
+            printf '%s' "$KEYSTORE_B64" | base64 -d > android/custom.keystore
+            store_pass="${KEYSTORE_PASSWORD:?ANDROID_KEYSTORE_PASSWORD is required when ANDROID_KEYSTORE_BASE64 is set}"
+            key_pass="${KEY_PASSWORD:-$store_pass}"
+            alias="${KEY_ALIAS:-fluffychatCustom}"
+          else
+            echo "No ANDROID_KEYSTORE_BASE64 secret, generating a throwaway key"
+            keytool -genkeypair -v -keystore android/custom.keystore \
+              -storetype PKCS12 -storepass fluffychatCustom \
+              -alias fluffychatCustom -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=FluffyChat Custom Build"
+            store_pass=fluffychatCustom
+            key_pass=fluffychatCustom
+            alias=fluffychatCustom
+          fi
+          {
+            echo "storePassword=$store_pass"
+            echo "keyPassword=$key_pass"
+            echo "keyAlias=$alias"
+            echo "storeFile=../custom.keystore"
+          } > android/key.properties
+      - name: Show signing fingerprint
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          store_pass="${KEYSTORE_PASSWORD:-fluffychatCustom}"
+          keytool -list -v -keystore android/custom.keystore -storepass "$store_pass" \
+            | grep -E 'Alias name|SHA256:'
       - name: Build APK
         run: flutter build apk --release
+      - name: Checksums
+        run: |
+          cd build/app/outputs/apk/release
+          sha256sum *.apk > SHA256SUMS-android.txt
+          cat SHA256SUMS-android.txt
       - uses: actions/upload-artifact@v7
         with:
           name: fluffychat-android-apk
-          path: build/app/outputs/apk/release/*.apk
+          path: |
+            build/app/outputs/apk/release/*.apk
+            build/app/outputs/apk/release/SHA256SUMS-android.txt
           if-no-files-found: error
 
   linux:
@@ -76,6 +147,9 @@ jobs:
           echo "$PWD/flutter/bin" >> $GITHUB_PATH
           ./flutter/bin/flutter --version
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: linux-${{ matrix.arch }}
       - run: flutter pub get
       - name: Build Linux bundle
         run: flutter build linux --release --target-platform linux-${{ matrix.arch }}
@@ -83,10 +157,14 @@ jobs:
         run: |
           tar -czf fluffychat-linux-${{ matrix.arch }}.tar.gz \
             -C build/linux/${{ matrix.arch }}/release/bundle .
+          sha256sum fluffychat-linux-${{ matrix.arch }}.tar.gz > SHA256SUMS-linux-${{ matrix.arch }}.txt
+          cat SHA256SUMS-linux-${{ matrix.arch }}.txt
       - uses: actions/upload-artifact@v7
         with:
           name: fluffychat-linux-${{ matrix.arch }}
-          path: fluffychat-linux-${{ matrix.arch }}.tar.gz
+          path: |
+            fluffychat-linux-${{ matrix.arch }}.tar.gz
+            SHA256SUMS-linux-${{ matrix.arch }}.txt
           if-no-files-found: error
 
   windows:
@@ -99,6 +177,9 @@ jobs:
           flutter-version-file: .fvmrc
           cache: true
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows
       - run: choco install innosetup -y
       - run: flutter pub get
       - name: Build Windows release
@@ -106,10 +187,52 @@ jobs:
       - name: Package installer and portable zip
         shell: pwsh
         run: ./scripts/package-windows.ps1 -BuildMode Release
+      - name: Checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem build/windows/installer/*.exe, build/windows/installer/*.zip |
+            ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" } |
+            Set-Content build/windows/installer/SHA256SUMS-windows.txt -Encoding ascii
+          Get-Content build/windows/installer/SHA256SUMS-windows.txt
       - uses: actions/upload-artifact@v7
         with:
           name: fluffychat-windows
           path: |
             build/windows/installer/fluffychat-windows-x64-setup.exe
             build/windows/installer/fluffychat-windows-x64.zip
+            build/windows/installer/SHA256SUMS-windows.txt
           if-no-files-found: error
+
+  release:
+    # Tag pushes publish the artifacts as a GitHub release, which outlives the
+    # 90 day artifact retention.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [quality, android, linux, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Merge checksums and build info
+        run: |
+          cd dist
+          cat SHA256SUMS-*.txt | sort -k2 -u > SHA256SUMS.txt
+          FLUTTER_VERSION=$(grep -o '"flutter": *"[^"]*"' ../.fvmrc | cut -d'"' -f4)
+          {
+            echo "fluffychat custom build"
+            echo "tag: ${GITHUB_REF_NAME}"
+            echo "commit: ${GITHUB_SHA}"
+            echo "built: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "flutter: ${FLUTTER_VERSION}"
+            echo "android signature: placeholder key (not upgradeable, see BUILD.md)"
+          } > BUILD-INFO.txt
+          rm -f SHA256SUMS-*.txt
+          ls -lh
+          cat SHA256SUMS.txt BUILD-INFO.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**
+          generate_release_notes: true
+          fail_on_unmatched_files: true
