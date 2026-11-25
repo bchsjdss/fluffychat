@@ -71,6 +71,13 @@ flutter build apk --release
 
 产物：`build/app/outputs/apk/release/app-release.apk`
 
+这是 universal APK，内含 `armeabi-v7a` / `arm64-v8a` / `x86` / `x86_64` 四个 ABI，体积约 198 MB（CI artifact 压缩后约 88 MB）。只需要 arm64 设备时可以用按 ABI 拆分的小包：
+
+```bash
+flutter build apk --release --split-per-abi
+# build/app/outputs/apk/release/app-arm64-v8a-release.apk 等
+```
+
 签名：`android/key.properties` 存在时使用其中的 keystore；不存在时使用仓库自带的占位签名（`android/app/dummy.keystore`）。正式签名可参考 `./scripts/prepare-android-release.sh`。
 
 ### Windows
@@ -184,4 +191,7 @@ Release 里的 `BUILD-INFO.txt` 记录 tag、commit、构建时间和 Flutter �
 - YAML 工作流解析通过。
 - 完整编译和 `dart analyze` 需要在 x86_64 构建机上执行。
 
-CI 上的验证（2026-11-24，run `45405808912`）：android / linux x64 / linux arm64 / windows 全部构建成功。
+CI 上的验证：
+
+- 2026-11-24，run `45405808912`：android / linux x64 / linux arm64 / windows 全部构建成功。
+- 2026-11-25，run `45548009279`（本版工作流）：quality 2m52s、android 18m9s、linux x64 4m7s、linux arm64 4m16s、windows 10m27s，全部成功；`quality` 的 7 个单测与 `flutter analyze` 均通过，`linux-x64` 的 `SHA256SUMS` 本地校验通过；非 tag 运行下 `release` job 按预期跳过。
