@@ -66,19 +66,35 @@ curl -X PUT \
 
 ```bash
 flutter pub get
-flutter build apk --release
-```
-
-产物：`build/app/outputs/apk/release/app-release.apk`
-
-这是 universal APK，内含 `armeabi-v7a` / `arm64-v8a` / `x86` / `x86_64` 四个 ABI，体积约 198 MB（CI artifact 压缩后约 88 MB）。只需要 arm64 设备时可以用按 ABI 拆分的小包：
-
-```bash
 flutter build apk --release --split-per-abi
-# build/app/outputs/apk/release/app-arm64-v8a-release.apk 等
 ```
 
-签名：`android/key.properties` 存在时使用其中的 keystore；不存在时使用仓库自带的占位签名（`android/app/dummy.keystore`）。正式签名可参考 `./scripts/prepare-android-release.sh`。
+产物：`build/app/outputs/apk/release/app-<abi>-release.apk`，每个包只含一个 CPU 架构：
+
+| APK | 适用设备 | 体积 |
+|---|---|---|
+| `app-arm64-v8a-release.apk` | 2017 年后的 64 位手机（绝大多数） | 约 62 MiB（估算） |
+| `app-armeabi-v7a-release.apk` | 老的 32 位手机 | 约 55 MiB（估算） |
+| `app-x86_64-release.apk` | Android 模拟器 | 约 69 MiB（估算） |
+
+上面三行体积是拿 universal 包的 `lib/` 分布推算的，没有实测过单 ABI 包；CI 的
+`Verify every APK holds exactly one ABI` 步骤会把实际大小打印出来。
+
+**不要再发 universal APK**（不带 `--split-per-abi` 的 `flutter build apk --release`）。
+实测 v2.11.6 的 universal 包 189.2 MiB，其中 184.1 MiB 是四个 ABI 各塞一份原生库：
+`x86_64` 64.0 MiB、`arm64-v8a` 57.4 MiB、`armeabi-v7a` 50.0 MiB、`x86` 12.6 MiB，
+非库部分（dex + 资源）只有 5.1 MiB。
+
+CI 构建后跑 `python3 scripts/verify_apk_abi.py build/app/outputs/apk/release`，
+任何一个包出现第二个 ABI 目录就直接失败。`android/app/build.gradle.kts` 里那段
+`ndk { abiFilters += ... }` 是绕 Flutter #162153 的 workaround，如果拆分失效先查这里。
+
+签名（对 `v2.11.6-bot2` 实测）：
+
+- 只有 v2 方案，没有 v1 JAR 签名；证书主体 `CN = FluffyChat Custom Build`，自签名，有效期到 2054 年。
+- 没配 `ANDROID_KEYSTORE_BASE64` 时 CI 每次用 `keytool -genkeypair` 现生成一次性密钥，所以**不同构建的证书指纹不同，互相覆盖不了**，升级必须先卸载。
+- Android 6 及以下不认 v2-only 签名，会报「未包含证书」/「解析软件包出现问题」。
+- 长期使用请配置正式 keystore（仓库 secrets 或 `android/key.properties`），参考 `./scripts/prepare-android-release.sh`。
 
 ### Windows
 

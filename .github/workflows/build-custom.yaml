@@ -104,8 +104,10 @@ jobs:
           store_pass="${KEYSTORE_PASSWORD:-fluffychatCustom}"
           keytool -list -v -keystore android/custom.keystore -storepass "$store_pass" \
             | grep -E 'Alias name|SHA256:'
-      - name: Build APK
-        run: flutter build apk --release
+      - name: Build APK (per-ABI splits)
+        run: flutter build apk --release --split-per-abi
+      - name: Verify every APK holds exactly one ABI
+        run: python3 scripts/verify_apk_abi.py build/app/outputs/apk/release
       - name: Checksums
         run: |
           cd build/app/outputs/apk/release
@@ -218,7 +220,18 @@ jobs:
       - name: Merge checksums and build info
         run: |
           cd dist
-          mv app-release.apk "fluffychat-android-${GITHUB_REF_NAME}.apk"
+          # 按 ABI 拆分后是多个包，文件名带上架构；万一哪天退回 universal 包也能处理
+          if [ -f app-release.apk ]; then
+            mv app-release.apk "fluffychat-android-${GITHUB_REF_NAME}.apk"
+          fi
+          ANDROID_ABIS=""
+          for f in app-*-release.apk; do
+            [ -e "$f" ] || continue
+            abi="${f#app-}"
+            abi="${abi%-release.apk}"
+            mv "$f" "fluffychat-android-${abi}-${GITHUB_REF_NAME}.apk"
+            ANDROID_ABIS="$ANDROID_ABIS $abi"
+          done
           FLUTTER_VERSION=$(grep -o '"flutter": *"[^"]*"' ../.fvmrc | cut -d'"' -f4)
           {
             echo "fluffychat custom build"
@@ -226,7 +239,8 @@ jobs:
             echo "commit: ${GITHUB_SHA}"
             echo "built: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo "flutter: ${FLUTTER_VERSION}"
-            echo "android signature: placeholder key (not upgradeable, see BUILD.md)"
+            echo "android abis:${ANDROID_ABIS:- none}"
+            echo "android signature: placeholder key per run (not upgradeable, see BUILD.md)"
           } > BUILD-INFO.txt
           rm -f SHA256SUMS-*.txt
           sha256sum *.apk *.tar.gz *.exe *.zip > SHA256SUMS.txt
