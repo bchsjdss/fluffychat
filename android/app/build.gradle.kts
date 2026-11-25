@@ -71,9 +71,12 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        ndk { // Workaround for https://github.com/flutter/flutter/issues/162153#issuecomment-2612443642
-            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86_64", "x86")
-        }
+        // 不再手写 ndk { abiFilters += ... }：Flutter Gradle 插件在 --split-per-abi
+        // 时会启用 splits.abi，非拆分时才自己设 abiFilters；手写一份会和 Gradle 的
+        // splits 配置互斥（"Conflicting configuration ... cannot be present when
+        // splits abi filters are set"）。下面两个指针可查：
+        // FlutterPlugin.configureAbis / configureAbiWithoutSplits
+        // https://github.com/flutter/flutter/issues/162153
     }
 
     buildTypes {

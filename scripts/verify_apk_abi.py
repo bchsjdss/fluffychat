@@ -47,7 +47,7 @@ def read_eocd(handle, size: int) -> tuple[int, int]:
     return cd_off, cd_size
 
 
-def inspect(path: str) -> tuple[dict[str, int], list[str]]:
+def inspect(path: str) -> tuple[dict[str, int], list[str], set[str]]:
     size = os.path.getsize(path)
     with open(path, "rb") as handle:
         cd_off, cd_size = read_eocd(handle, size)
@@ -78,6 +78,7 @@ def inspect(path: str) -> tuple[dict[str, int], list[str]]:
             ids.insert(0, "v1")
 
     abi_bytes: dict[str, int] = collections.Counter()
+    lib_names: set[str] = set()
     pos = 0
     while pos + 46 <= len(cd) and cd[pos : pos + 4] == CD_SIG:
         fields = struct.unpack("<IHHHHHHIIIHHHHHII", cd[pos : pos + 46])
@@ -91,9 +92,10 @@ def inspect(path: str) -> tuple[dict[str, int], list[str]]:
         parts = name.split("/")
         if len(parts) > 2 and parts[0] == "lib":
             abi_bytes[parts[1]] += comp_size
+            lib_names.add(name)
         pos += 46 + name_len + extra_len + comment_len
 
-    return abi_bytes, ids
+    return abi_bytes, ids, lib_names
 
 
 def main(argv: list[str]) -> int:
@@ -110,7 +112,7 @@ def main(argv: list[str]) -> int:
     failures = 0
     for name in apks:
         path = os.path.join(target, name)
-        abi_bytes, schemes = inspect(path)
+        abi_bytes, schemes, lib_names = inspect(path)
         size_mib = os.path.getsize(path) / 1024 / 1024
         lib_total = sum(abi_bytes.values()) / 1024 / 1024
         abis = " ".join(f"{k}={v / 1024 / 1024:.1f}MiB" for k, v in sorted(abi_bytes.items()))
@@ -121,6 +123,17 @@ def main(argv: list[str]) -> int:
         if len(abi_bytes) > 1:
             print(f"  ✗ 这个包里有 {len(abi_bytes)} 个 ABI，不是单架构包")
             failures += 1
+        elif len(abi_bytes) == 1:
+            abi = next(iter(abi_bytes))
+            # 单架构包里必须带齐 Flutter 引擎和应用本体，缺了说明 ABI 过滤把库吃掉了
+            missing = [
+                lib
+                for lib in (f"lib/{abi}/libflutter.so", f"lib/{abi}/libapp.so")
+                if lib not in lib_names
+            ]
+            if missing:
+                print(f"  ✗ 缺少 {', '.join(missing)}")
+                failures += 1
 
     if failures:
         print(f"\n{failures} 个 APK 没通过 ABI 隔离检查", file=sys.stderr)
