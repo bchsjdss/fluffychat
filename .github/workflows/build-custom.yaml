@@ -218,7 +218,7 @@ jobs:
       - name: Merge checksums and build info
         run: |
           cd dist
-          cat SHA256SUMS-*.txt | sort -k2 -u > SHA256SUMS.txt
+          mv app-release.apk "fluffychat-android-${GITHUB_REF_NAME}.apk"
           FLUTTER_VERSION=$(grep -o '"flutter": *"[^"]*"' ../.fvmrc | cut -d'"' -f4)
           {
             echo "fluffychat custom build"
@@ -229,10 +229,12 @@ jobs:
             echo "android signature: placeholder key (not upgradeable, see BUILD.md)"
           } > BUILD-INFO.txt
           rm -f SHA256SUMS-*.txt
+          sha256sum *.apk *.tar.gz *.exe *.zip > SHA256SUMS.txt
           ls -lh
           cat SHA256SUMS.txt BUILD-INFO.txt
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3.0.4
         with:
           files: dist/**
+          body_path: dist/BUILD-INFO.txt
           generate_release_notes: true
           fail_on_unmatched_files: true
