@@ -162,7 +162,7 @@ class BotCard {
     Map<String, Object?>? baseContent, {
     Iterable<Map<String, Object?>> editContents = const [],
   }) {
-    Map<String, Object?>? content = baseContent;
+    var content = baseContent;
     for (final edit in editContents) {
       final replacement = edit['m.new_content'];
       if (replacement is Map) {
