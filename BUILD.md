@@ -123,7 +123,7 @@ gh workflow run build-custom.yaml -R bchsjdss/fluffychat -f targets=all
 gh run watch -R bchsjdss/fluffychat
 
 # 或把当前提交打成标签，构建成功后自动发布 GitHub Release
-git tag v2.11.6-bot1 && git push mine v2.11.6-bot1
+git tag v2.11.6-bot2 && git push mine v2.11.6-bot2
 ```
 
 ### 四个 job
@@ -194,4 +194,6 @@ Release 里的 `BUILD-INFO.txt` 记录 tag、commit、构建时间和 Flutter �
 CI 上的验证：
 
 - 2026-11-24，run `45405808912`：android / linux x64 / linux arm64 / windows 全部构建成功。
-- 2026-11-25，run `45548009279`（本版工作流）：quality 2m52s、android 18m9s、linux x64 4m7s、linux arm64 4m16s、windows 10m27s，全部成功；`quality` 的 7 个单测与 `flutter analyze` 均通过，`linux-x64` 的 `SHA256SUMS` 本地校验通过；非 tag 运行下 `release` job 按预期跳过。
+- 2026-11-25，run `45548009279`（本版工作流首跑）：quality 2m52s、android 18m9s、linux x64 4m7s、linux arm64 4m16s、windows 10m27s，全部成功；`quality` 的 7 个单测与 `flutter analyze` 均通过，`linux-x64` 的 `SHA256SUMS` 本地校验通过；非 tag 运行下 `release` job 按预期跳过。
+- 2026-11-25，tag `v2.11.6-bot2`（run `45552868351`）：5 个 job + `release` 全部成功，发布 https://github.com/bchsjdss/fluffychat/releases/tag/v2.11.6-bot2 ；资产含 `fluffychat-android-v2.11.6-bot2.apk`、`fluffychat-linux-{x64,arm64}.tar.gz`、`fluffychat-windows-x64-{setup.exe,.zip}`、`SHA256SUMS.txt`、`BUILD-INFO.txt`；APK 下载后 `sha256sum -c` 通过。
+- 缓存效果：linux x64 从 4m7s 降到 3m14s / 4m35s，quality 约 2m40s，android 仍为耗时瓶颈（18–20 分钟，取决于 Gradle/Rust 缓存命中）。
