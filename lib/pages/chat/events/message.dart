@@ -23,6 +23,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:matrix/matrix.dart';
 
 import '../../../config/app_config.dart';
+import '../../../utils/bot_card.dart';
 import '../sticker_picker_dialog.dart';
 import 'message_content.dart';
 import 'message_reactions.dart';
@@ -91,6 +92,9 @@ class Message extends StatelessWidget {
       EventTypes.Sticker,
       EventTypes.CallInvite,
       PollEventContent.startType,
+      // Bot cards are messages, not state events. Handling them here keeps
+      // them out of StateMessage, which would collapse them to one line.
+      botCardEventType,
     }.contains(event.type)) {
       if (event.type.startsWith('m.call.')) {
         return const SizedBox.shrink();

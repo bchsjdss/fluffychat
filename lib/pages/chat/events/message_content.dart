@@ -14,10 +14,12 @@ import 'package:material_ui/material_ui.dart';
 import 'package:matrix/matrix.dart';
 
 import '../../../config/app_config.dart';
+import '../../../utils/bot_card.dart';
 import '../../../utils/event_checkbox_extension.dart';
 import '../../../utils/platform_infos.dart';
 import '../../../utils/url_launcher.dart';
 import 'audio_player.dart';
+import 'bot_card.dart';
 import 'cute_events.dart';
 import 'html_message.dart';
 import 'image_bubble.dart';
@@ -51,6 +53,21 @@ class MessageContent extends StatelessWidget {
     const fontSize = AppConfig.messageFontSize;
     final buttonTextColor = textColor;
     switch (event.type) {
+      case botCardEventType:
+        if (event.redacted) {
+          return RedactionWidget(
+            event: event,
+            buttonTextColor: buttonTextColor,
+            onInfoTab: onInfoTab,
+            fontSize: fontSize,
+          );
+        }
+        return BotCardWidget(
+          event: event,
+          timeline: timeline,
+          textColor: textColor,
+          fontSize: fontSize,
+        );
       case EventTypes.Message:
       case EventTypes.Encrypted:
       case EventTypes.Sticker:

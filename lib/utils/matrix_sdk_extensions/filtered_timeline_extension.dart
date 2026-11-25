@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import 'package:fluffychat/config/setting_keys.dart';
+import 'package:fluffychat/utils/bot_card.dart';
 import 'package:matrix/matrix.dart';
 
 extension VisibleInGuiExtension on List<Event> {
@@ -39,16 +40,24 @@ extension IsStateExtension on Event {
       !{EventTypes.Reaction, EventTypes.Redaction}.contains(type) &&
       // if we enabled to hide all redacted events, don't show those
       (!AppSettings.hideRedactedEvents.value || !redacted) &&
-      // if we enabled to hide all unknown events, don't show those
-      (!AppSettings.hideUnknownEvents.value || isEventTypeKnown);
+      // if we enabled to hide all unknown events, don't show those.
+      // Bot cards are custom events but already known to this client.
+      (!AppSettings.hideUnknownEvents.value ||
+          isEventTypeKnown ||
+          type == botCardEventType);
 
-  bool get isState => !{EventTypes.Message, EventTypes.Sticker}.contains(type);
+  bool get isState => !{
+    EventTypes.Message,
+    EventTypes.Sticker,
+    botCardEventType,
+  }.contains(type);
 
   bool get isCollapsedState => !{
     EventTypes.Message,
     EventTypes.Sticker,
     EventTypes.RoomCreate,
     EventTypes.RoomTombstone,
+    botCardEventType,
   }.contains(type);
 
   bool get isKnownHiddenStates =>
