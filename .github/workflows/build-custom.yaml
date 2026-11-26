@@ -47,6 +47,7 @@ jobs:
             lib/pages/chat/events/message.dart \
             lib/pages/chat/events/message_content.dart \
             lib/utils/matrix_sdk_extensions/filtered_timeline_extension.dart \
+            lib/widgets/local_notifications_extension.dart \
             test/bot_menu_test.dart \
             test/bot_card_test.dart
       - name: Analyze changed files
@@ -61,6 +62,7 @@ jobs:
             lib/pages/chat/events/message.dart \
             lib/pages/chat/events/message_content.dart \
             lib/utils/matrix_sdk_extensions/filtered_timeline_extension.dart \
+            lib/widgets/local_notifications_extension.dart \
             test/bot_menu_test.dart \
             test/bot_card_test.dart
       - name: Bot menu and bot card unit tests

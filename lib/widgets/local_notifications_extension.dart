@@ -128,7 +128,16 @@ extension LocalNotificationsExtension on MatrixState {
             _ => [],
           },
         ),
-        windows: WindowsNotificationDetails(timestamp: event.originServerTs),
+        windows: WindowsNotificationDetails(
+          timestamp: event.originServerTs,
+          // Android plays its own channel sound, so Windows must not silently
+          // rely on whatever the system default happens to be: set the IM
+          // sound explicitly. Without this the toast carries no audio event at
+          // all and a muted default leaves chat messages without any sound.
+          audio: WindowsNotificationAudio.preset(
+            sound: WindowsNotificationSound.im,
+          ),
+        ),
         macOS: DarwinNotificationDetails(
           badgeNumber: unreadRooms,
           threadIdentifier: '${client.clientName}_$roomId',
