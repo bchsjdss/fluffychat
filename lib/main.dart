@@ -10,6 +10,7 @@ import 'dart:ui';
 import 'package:collection/collection.dart';
 import 'package:fluffychat/config/app_config.dart';
 import 'package:fluffychat/utils/client_manager.dart';
+import 'package:fluffychat/utils/desktop_tray.dart';
 import 'package:fluffychat/utils/error_reporter.dart';
 import 'package:fluffychat/utils/notification_background_handler.dart';
 import 'package:fluffychat/utils/platform_infos.dart';
@@ -135,6 +136,9 @@ Future<void> startGui(List<Client> clients, SharedPreferences store) async {
 
   if (PlatformInfos.isLinux || PlatformInfos.isWindows) {
     JustAudioMediaKit.ensureInitialized();
+    // Desktop IM client: keep running in the tray, closing the window only
+    // hides it. Falls back to "close quits" if the tray cannot be created.
+    await DesktopTray.instance.init();
   }
 
   // Preload first client
