@@ -93,6 +93,14 @@ set_target_properties(${BINARY_NAME}
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# tray_manager 0.5.2 still calls app_indicator_new(), which libayatana marks as
+# deprecated. Flutter's plugin template compiles with -Werror, so that single
+# warning breaks the whole Linux build. Silence it for this plugin only instead
+# of forking it.
+if(TARGET tray_manager_plugin)
+  target_compile_options(tray_manager_plugin PRIVATE -Wno-error=deprecated-declarations)
+endif()
+
 
 # === Installation ===
 # By default, "installing" just makes a relocatable bundle in the build
