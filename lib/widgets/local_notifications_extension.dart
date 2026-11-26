@@ -3,6 +3,8 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import 'dart:async';
+
 import 'package:fluffychat/config/setting_keys.dart';
 import 'package:fluffychat/l10n/l10n.dart';
 import 'package:fluffychat/utils/client_download_content_extension.dart';
@@ -15,6 +17,7 @@ import 'package:fluffychat/widgets/incoming_call_dialog.dart';
 import 'package:fluffychat/widgets/matrix.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:matrix/matrix.dart';
 import 'package:universal_html/html.dart' as html;
@@ -23,6 +26,39 @@ extension LocalNotificationsExtension on MatrixState {
   static final html.AudioElement _audioPlayer = html.AudioElement()
     ..src = 'assets/assets/sounds/notification.mp3'
     ..load();
+
+  // The Windows backend of flutter_local_notifications (4.0.0) never serialises
+  // WindowsNotificationDetails.audio into the toast XML - there is no <audio>
+  // element in notification_to_xml.dart at all - so a Windows message is only
+  // audible if the OS default sound happens to be enabled. Android plays its
+  // own channel sound, so play the bundled sound ourselves on Windows too.
+  static final AudioPlayer _notificationSoundPlayer = AudioPlayer();
+  static bool _notificationSoundLoaded = false;
+  static DateTime? _notificationSoundLastPlayed;
+
+  static void _playNotificationSound() {
+    final now = DateTime.now();
+    final last = _notificationSoundLastPlayed;
+    if (last != null &&
+        now.difference(last) < const Duration(milliseconds: 800)) {
+      return;
+    }
+    _notificationSoundLastPlayed = now;
+    unawaited(() async {
+      try {
+        if (!_notificationSoundLoaded) {
+          await _notificationSoundPlayer.setAsset(
+            'assets/sounds/notification.mp3',
+          );
+          _notificationSoundLoaded = true;
+        }
+        await _notificationSoundPlayer.seek(Duration.zero);
+        await _notificationSoundPlayer.play();
+      } catch (e, s) {
+        Logs().w('Unable to play the notification sound', e, s);
+      }
+    }());
+  }
 
   Future<void> showLocalNotification(Event event) async {
     if (event.type == RtcNotificationContent.eventType &&
@@ -99,6 +135,8 @@ extension LocalNotificationsExtension on MatrixState {
 
     if (kIsWeb && AppSettings.webNotificationSound.value) _audioPlayer.play();
 
+    if (PlatformInfos.isWindows) _playNotificationSound();
+
     await FlutterLocalNotificationsPlugin().show(
       id: id,
       title: title,
@@ -130,10 +168,10 @@ extension LocalNotificationsExtension on MatrixState {
         ),
         windows: WindowsNotificationDetails(
           timestamp: event.originServerTs,
-          // Android plays its own channel sound, so Windows must not silently
-          // rely on whatever the system default happens to be: set the IM
-          // sound explicitly. Without this the toast carries no audio event at
-          // all and a muted default leaves chat messages without any sound.
+          // Android plays its own channel sound. flutter_local_notifications
+          // 4.0.0 drops this audio parameter when it builds the toast XML, so
+          // the in-app player below is what actually makes Windows audible;
+          // keep the preset for the day the plugin honours it.
           audio: WindowsNotificationAudio.preset(
             sound: WindowsNotificationSound.im,
           ),
