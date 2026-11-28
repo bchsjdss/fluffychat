@@ -327,3 +327,6 @@ macos/FluffyChat.pkg
 
 # CI generated APK signing keystore (never commit)
 android/custom.keystore
+android-signing/
+*keystore-password.txt
+*android-custom.keystore.b64

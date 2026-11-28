@@ -96,37 +96,45 @@ jobs:
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          if [ -n "$KEYSTORE_B64" ]; then
-            echo "Using the keystore from repository secrets"
-            printf '%s' "$KEYSTORE_B64" | base64 -d > android/custom.keystore
-            store_pass="${KEYSTORE_PASSWORD:?ANDROID_KEYSTORE_PASSWORD is required when ANDROID_KEYSTORE_BASE64 is set}"
-            key_pass="${KEY_PASSWORD:-$store_pass}"
-            alias="${KEY_ALIAS:-fluffychatCustom}"
-          else
-            echo "No ANDROID_KEYSTORE_BASE64 secret, generating a throwaway key"
-            keytool -genkeypair -v -keystore android/custom.keystore \
-              -storetype PKCS12 -storepass fluffychatCustom \
-              -alias fluffychatCustom -keyalg RSA -keysize 2048 -validity 10000 \
-              -dname "CN=FluffyChat Custom Build"
-            store_pass=fluffychatCustom
-            key_pass=fluffychatCustom
-            alias=fluffychatCustom
+          # 固定签名：keystore 只从 repository secret 取，缺失直接失败。
+          # 不再回退到每次现生成的一次性 key —— 那样的 APK 换个版本就覆盖不了，
+          # 用户必须先卸载，等于每次升级都丢本地数据。生成/备份方法见 BUILD.md。
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 未配置。不要用一次性 key 发包（不同次构建的 APK 互相覆盖不了）。"
+            echo "按 BUILD.md「Android 固定签名」生成并配置 4 个 secret 后重跑。"
+            exit 1
           fi
+          echo "Using the fixed keystore from repository secrets"
+          printf '%s' "$KEYSTORE_B64" | base64 -d > android/custom.keystore
+          store_pass="${KEYSTORE_PASSWORD:?ANDROID_KEYSTORE_PASSWORD is required when ANDROID_KEYSTORE_BASE64 is set}"
+          key_pass="${KEY_PASSWORD:-$store_pass}"
+          alias="${KEY_ALIAS:-fluffychatCustom}"
           {
             echo "storePassword=$store_pass"
             echo "keyPassword=$key_pass"
             echo "keyAlias=$alias"
             echo "storeFile=../custom.keystore"
           } > android/key.properties
-      - name: Show signing fingerprint
-        env:
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-        run: |
-          store_pass="${KEYSTORE_PASSWORD:-fluffychatCustom}"
-          keytool -list -v -keystore android/custom.keystore -storepass "$store_pass" \
-            | grep -E 'Alias name|SHA256:'
       - name: Build APK (per-ABI splits)
         run: flutter build apk --release --split-per-abi
+      - name: Verify APK signing certificate
+        run: |
+          APKSIGNER=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          : > android-signature.txt
+          for apk in build/app/outputs/apk/release/*.apk; do
+            "$APKSIGNER" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' \
+              | sed "s|^|$(basename "$apk"): |" | tee -a android-signature.txt
+          done
+          # 所有 ABI 必须是同一张证书，否则其中一个包装不上或升不了级
+          digest=$(sed 's/^[^:]*: //' android-signature.txt | sort -u)
+          count=$(printf '%s\n' "$digest" | wc -l)
+          if [ "$count" -ne 1 ]; then
+            echo "::error::APK 签名证书不一致（共 $count 张），无法覆盖升级"
+            cat android-signature.txt
+            exit 1
+          fi
+          printf 'cert-sha256: %s\n' "$digest" > android-signature.txt
+          cat android-signature.txt
       - name: Verify every APK holds exactly one ABI
         run: python3 scripts/verify_apk_abi.py build/app/outputs/apk/release
       - name: Checksums
@@ -140,23 +148,37 @@ jobs:
           path: |
             build/app/outputs/apk/release/*.apk
             build/app/outputs/apk/release/SHA256SUMS-android.txt
+            android-signature.txt
           if-no-files-found: error
 
   linux:
+    # 构建基线：产物必须在 Ubuntu 22.04（glibc 2.35 / libstdc++ 3.4.30）上能跑。
+    # Flutter 的 Linux 插件（flutter_webrtc、livekit_client、flutter_secure_storage、
+    # sqlcipher、webcrypto）都是构建机上现编译的，构建机 glibc 会写进产物的符号引用。
+    # 历史上整套 job 跑在 ubuntu-26.04 上，产物要求 GLIBC_2.38/2.43，22.04 用户装上直接起不来。
+    # 所以这里钉死 ubuntu-22.04（/ -arm），下面的自检步骤会在基线漂移时直接让 job 失败。
     strategy:
       fail-fast: false
       matrix:
-        arch: [x64, arm64]
-    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-26.04-arm' || 'ubuntu-latest' }}
+        include:
+          - arch: x64
+            runner: ubuntu-22.04
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.targets == 'all' || github.event.inputs.targets == 'linux'
     steps:
       - uses: actions/checkout@v7
       - name: Install GTK dependencies
         run: |
+          # jammy 的包名：webkit2gtk 走 4.1（libsoup3），mpv 运行时叫 libmpv1
+          # （libmpv-dev 是 pull 它的开发包；24.04+ 上才叫 libmpv2）
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev \
-            libblkid-dev liblzma-dev libjsoncpp-dev libsecret-1-dev libsecret-1-0 \
-            libssl-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev
+          sudo apt-get install -y clang cmake ninja-build pkg-config \
+            libgtk-3-dev libglu1-mesa libblkid-dev liblzma-dev libjsoncpp-dev \
+            libsecret-1-dev libsecret-1-0 libssl-dev libsoup-3.0-dev \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            libayatana-indicator3-dev libdbusmenu-glib-dev libmpv-dev
       - uses: subosito/flutter-action@v2
         if: matrix.arch == 'x64'
         with:
@@ -176,6 +198,15 @@ jobs:
       - run: flutter pub get
       - name: Build Linux bundle
         run: flutter build linux --release --target-platform linux-${{ matrix.arch }}
+      - name: Check glibc / libstdc++ baseline
+        shell: bash
+        run: |
+          # 基线：Ubuntu 22.04 的 glibc 2.35 + libstdc++ 3.4.30（GCC 12）。
+          # 超过基线就让 job 挂，并打印是哪个 .so 要求的版本。
+          REPORT_FILE=glibc-baseline-linux-${{ matrix.arch }}.txt \
+            bash scripts/check-linux-glibc-baseline.sh \
+              build/linux/${{ matrix.arch }}/release/bundle 2.35 3.4.30 \
+            | tee glibc-report-linux-${{ matrix.arch }}.log
       - name: Report libmpv availability
         run: |
           # media_kit needs libmpv at runtime for call and notification sounds.
@@ -198,6 +229,8 @@ jobs:
           path: |
             fluffychat-linux-${{ matrix.arch }}.tar.gz
             SHA256SUMS-linux-${{ matrix.arch }}.txt
+            glibc-baseline-linux-${{ matrix.arch }}.txt
+            glibc-report-linux-${{ matrix.arch }}.log
           if-no-files-found: error
 
   windows:
@@ -264,6 +297,10 @@ jobs:
             ANDROID_ABIS="$ANDROID_ABIS $abi"
           done
           FLUTTER_VERSION=$(grep -o '"flutter": *"[^"]*"' ../.fvmrc | cut -d'"' -f4)
+          # 两个 job 各自写一份结论文件，这里只负责汇总，不手写环境信息（避免又变成硬编码）
+          MIN_GLIBC=$(sed -n 's/^min-glibc=//p' glibc-baseline-linux-x64.txt 2>/dev/null | head -1)
+          ANDROID_SIG=$(sed -n 's/^cert-sha256: //p' android-signature.txt 2>/dev/null | head -1)
+          LINUX_RUNTIME_DEPS="libmpv2 (Ubuntu 24.04+) / libmpv1 (Ubuntu 22.04) — 语音/视频消息必需，未安装则静音； libwebkit2gtk-4.1-0 libsecret-1-0 libayatana-appindicator3-1 libdbusmenu-glib-0 libgtk-3-0"
           {
             echo "fluffychat custom build"
             echo "tag: ${GITHUB_REF_NAME}"
@@ -271,9 +308,11 @@ jobs:
             echo "built: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo "flutter: ${FLUTTER_VERSION}"
             echo "android abis:${ANDROID_ABIS:- none}"
-            echo "android signature: placeholder key per run (not upgradeable, see BUILD.md)"
+            echo "min glibc: ${MIN_GLIBC:-unknown}"
+            echo "runtime apt deps: ${LINUX_RUNTIME_DEPS}"
+            echo "android signature: ${ANDROID_SIG:-unknown}"
           } > BUILD-INFO.txt
-          rm -f SHA256SUMS-*.txt
+          rm -f SHA256SUMS-*.txt android-signature.txt
           sha256sum *.apk *.tar.gz *.exe *.zip > SHA256SUMS.txt
           ls -lh
           cat SHA256SUMS.txt BUILD-INFO.txt

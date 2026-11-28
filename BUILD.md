@@ -89,12 +89,17 @@ CI 构建后跑 `python3 scripts/verify_apk_abi.py build/app/outputs/apk/release
 任何一个包出现第二个 ABI 目录就直接失败。`android/app/build.gradle.kts` 里那段
 `ndk { abiFilters += ... }` 是绕 Flutter #162153 的 workaround，如果拆分失效先查这里。
 
-签名（对 `v2.11.6-bot2` 实测）：
+签名（v2.11.6-bot7 起固定，见下）：
 
-- 只有 v2 方案，没有 v1 JAR 签名；证书主体 `CN = FluffyChat Custom Build`，自签名，有效期到 2054 年。
-- 没配 `ANDROID_KEYSTORE_BASE64` 时 CI 每次用 `keytool -genkeypair` 现生成一次性密钥，所以**不同构建的证书指纹不同，互相覆盖不了**，升级必须先卸载。
+- 只有 v2 方案，没有 v1 JAR 签名。证书 `CN = FluffyChat Custom Build`（OU = Custom clients），
+  自签名，RSA 2048，有效期到 2056-11-20，SHA-256 指纹
+  `A2:EA:F9:40:57:E3:01:69:54:CF:9F:39:AC:E5:5A:9E:5D:93:EE:B9:90:5C:58:1B:75:54:AC:3F:ED:B6:94:13`。
+- 这张证书由 `scripts/create-android-keystore.sh` 生成一次，base64 后存进仓库 secret
+  `ANDROID_KEYSTORE_BASE64`（+ 密码/别名，见第四节）。CI **不再**每次现生成一次性 key：
+  没配 secret 时 android job 直接失败，不会静默产出一个升不了级的包。
+- 换签名那次升级需要先卸载一次旧版（旧包是历史上的一次性 key 签的，跟新证书对不上）；
+  从 bot7 往后同一个包名可以**直接覆盖升级**，本地数据不丢。
 - Android 6 及以下不认 v2-only 签名，会报「未包含证书」/「解析软件包出现问题」。
-- 长期使用请配置正式 keystore（仓库 secrets 或 `android/key.properties`），参考 `./scripts/prepare-android-release.sh`。
 
 ### Windows
 
@@ -119,7 +124,8 @@ flutter build windows --release
 ```bash
 sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev \
   libblkid-dev liblzma-dev libjsoncpp-dev libsecret-1-dev libssl-dev \
-  libwebkit2gtk-4.1-dev
+  libsoup-3.0-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+  libayatana-indicator3-dev libdbusmenu-glib-dev
 ```
 
 ```bash
@@ -128,6 +134,37 @@ flutter build linux --release
 ```
 
 产物：`build/linux/x64/release/bundle/`（x64）。arm64 加 `--target-platform linux-arm64`。
+
+#### Linux 构建基线（glibc 2.35 / libstdc++ 3.4.30）
+
+产物必须能在 **Ubuntu 22.04+** 上直接跑。Flutter 的 Linux 插件（`flutter_webrtc`、
+`livekit_client`、`flutter_secure_storage`、`sqlcipher`、`webcrypto`）都是**构建机上现编译的**，
+构建机的 glibc 会原样写进产物的 `GLIBC_x.y` 符号引用。在 26.04（glibc 2.43）上构建，
+产物会要求 `GLIBC_2.38`/`GLIBC_2.43` 和 `GLIBCXX_3.4.32`，22.04 用户 `ldd` 就报
+`version 'GLIBC_2.43' not found`，装上起不来。
+
+所以构建环境固定在 glibc 2.35：CI 的 linux job 跑 `ubuntu-22.04` / `ubuntu-22.04-arm`，
+**不要**改回 `ubuntu-latest`/`ubuntu-26.04`。本地用 22.04 或 `ubuntu:22.04` 容器构建。
+
+构建后跑自检（CI 里同名步骤，超标直接让 job 失败）：
+
+```bash
+REPORT_FILE=glibc-baseline-linux-x64.txt \
+  scripts/check-linux-glibc-baseline.sh build/linux/x64/release/bundle 2.35 3.4.30
+```
+
+脚本遍历 bundle 里所有 ELF（可执行文件 + `.so`），取每个文件的最高 `GLIBC_x.y` 与
+`GLIBCXX_x.y`（本质上就是 `readelf -V | grep -o 'GLIBC_[0-9.]*' | sort -V | tail -1`，
+没有 `readelf` 时退回 `grep -aoh`），超过基线就列出是哪几个文件并退出 1。
+
+运行时依赖（不打包，靠系统 apt）：
+
+```bash
+sudo apt-get install -y libmpv1    # Ubuntu 22.04；24.04+ 是 libmpv2，没有它语音/视频消息静音
+```
+
+`libwebkit2gtk-4.1-0`、`libsecret-1-0`、`libayatana-appindicator3-1`、`libdbusmenu-glib-0`、
+`libgtk-3-0` 一般随桌面环境已存在。
 
 ## 四、用 GitHub Actions 构建（推荐）
 
@@ -147,8 +184,8 @@ git tag v2.11.6-bot2 && git push mine v2.11.6-bot2
 | job | 作用 |
 | --- | --- |
 | `quality` | `flutter analyze` 四个改动文件 + `flutter test test/bot_menu_test.dart`。`dart format` 只报告、不阻塞。 |
-| `android` | 产出 `fluffychat-android-apk`（APK + `SHA256SUMS-android.txt`）。 |
-| `linux` | x64 / arm64 矩阵，产出 `fluffychat-linux-{x64,arm64}`（tar.gz + 校验和）。 |
+| `android` | 产出 `fluffychat-android-apk`（APK + `SHA256SUMS-android.txt` + `cert-sha256`）。缺 keystore secret 时**故意失败**。 |
+| `linux` | x64 / arm64 矩阵，跑在 `ubuntu-22.04` / `ubuntu-22.04-arm`（glibc 2.35）；构建后跑 glibc 基线自检，超标即失败；产出 tar.gz + 校验和 + `glibc-baseline-linux-*.txt`。 |
 | `windows` | 产出 `fluffychat-windows`（安装包、免安装 zip、`SHA256SUMS-windows.txt`）。 |
 | `release` | 仅在 `v*` 标签时运行，等前四个 job 成功后，把全部产物连同合并后的 `SHA256SUMS.txt`、`BUILD-INFO.txt` 发布为 GitHub Release。 |
 
@@ -156,18 +193,35 @@ git tag v2.11.6-bot2 && git push mine v2.11.6-bot2
 
 Android 的 `SHA256SUMS-*.txt` 与产物一起上传；`release` 会把它们合并成 `SHA256SUMS.txt`。
 
-### Android 正式签名（可选，但建议）
+### Android 固定签名（必须配置）
 
-默认情况下每次构建都会临时生成一次性 keystore，因此**不同次构建的 APK 签名不同，无法覆盖安装**（需先卸载旧版）。要固定签名，在仓库 Settings → Secrets and variables → Actions 中添加：
+CI 只从仓库 secrets 取 keystore，**缺失时 android job 直接失败**（宁可不出包，也不要再发一个
+升不了级的包）。四个 secret：
 
 | Secret | 含义 |
 | --- | --- |
-| `ANDROID_KEYSTORE_BASE64` | `base64 -w0 your.keystore` 的结果 |
-| `ANDROID_KEYSTORE_PASSWORD` | keystore 密码 |
-| `ANDROID_KEY_ALIAS` | 可选，默认 `fluffychatCustom` |
+| `ANDROID_KEYSTORE_BASE64` | `base64 -w0 android-custom.keystore` 的结果 |
+| `ANDROID_KEYSTORE_PASSWORD` | keystore 密码（PKCS12 下 key 密码与它相同） |
+| `ANDROID_KEY_ALIAS` | 可选，默认 `fluffychatCustom`（PKCS12 里存成小写） |
 | `ANDROID_KEY_PASSWORD` | 可选，默认同 keystore 密码 |
 
-配置后工作流使用该 keystore，并在 `Show signing fingerprint` 步骤打印 SHA256 指纹。四个 secret 前两个缺失时自动回退到一次性占位签名。
+生成一份新的固定密钥：
+
+```bash
+scripts/create-android-keystore.sh        # 产物在 ./android-signing/（已 gitignore）
+```
+
+脚本会打印对应的 4 条 `gh secret set` 命令。keystore 与密码只留在本地和 secrets，
+**绝不进仓库**；备份丢了就等于所有已装用户再也升不了级。
+
+当前在用的证书指纹（SHA-256）：
+
+```
+A2:EA:F9:40:57:E3:01:69:54:CF:9F:39:AC:E5:5A:9E:5D:93:EE:B9:90:5C:58:1B:75:54:AC:3F:ED:B6:94:13
+```
+
+`Verify APK signing certificate` 步骤会用 `apksigner verify --print-certs` 读**实际产物**的证书，
+三个 ABI 的指纹不一致就直接失败，并把 `cert-sha256` 写进 Release 的 `BUILD-INFO.txt`。
 
 ### 校验产物
 
@@ -185,7 +239,13 @@ Windows 上：
 Get-FileHash .\fluffychat-windows-x64-setup.exe -Algorithm SHA256
 ```
 
-Release 里的 `BUILD-INFO.txt` 记录 tag、commit、构建时间和 Flutter 版本，便于确认产物对应哪次代码。
+Release 里的 `BUILD-INFO.txt` 记录 tag、commit、构建时间和 Flutter 版本，以及两个跟「能不能跑」
+直接相关的字段：
+
+- `min glibc: 2.35` —— 产物里实测的最高 `GLIBC_x.y`（由 linux job 的基线自检写入，不是手填）。
+- `runtime apt deps: …` —— 运行时 apt 依赖，至少 `libmpv2`（24.04+）/`libmpv1`（22.04），
+  不装则语音/视频消息静音。
+- `android signature: <cert-sha256>` —— 实际签名证书指纹（`apksigner verify --print-certs`）。
 
 ### 缓存
 
