@@ -203,11 +203,7 @@ jobs:
         run: |
           # 基线：Ubuntu 22.04 的 glibc 2.35 + libstdc++ 3.4.30（GCC 12）。
           # 超过基线就让 job 挂，并打印是哪个 .so 要求的版本。
-          # libsqlcipher.so 来自 sqlite3 3.5.0 的预编译产物（hook 直接下载，
-          # 不在本机构建），上游用的是新发行版，硬顶 GLIBC_2.38。它是桌面版
-          # 消息库，所以桌面版实际下限是 2.38（Ubuntu 24.04+），不是 2.35。
-          ALLOW_GLIBC='lib/libsqlcipher.so:2.38' \
-            REPORT_FILE=glibc-baseline-linux-${{ matrix.arch }}.txt \
+          REPORT_FILE=glibc-baseline-linux-${{ matrix.arch }}.txt \
             bash scripts/check-linux-glibc-baseline.sh \
               build/linux/${{ matrix.arch }}/release/bundle 2.35 3.4.30 \
             | tee glibc-report-linux-${{ matrix.arch }}.log

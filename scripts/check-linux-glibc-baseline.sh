@@ -18,11 +18,7 @@
 #   scripts/check-linux-glibc-baseline.sh build/linux/x64/release/bundle 2.35 3.4.30
 #
 # 环境变量：
-#   REPORT_FILE   额外把结论写成 key=value 行（给 release 的 BUILD-INFO.txt 用）
-#   ALLOW_GLIBC   例外表，逗号分隔的 “相对路径:最高允许版本”，例如
-#                 lib/libsqlcipher.so:2.38。只对**第三方预编译**库使用：这些 .so
-#                 不是在本机构建的，基线由上游决定，我们无法靠换 runner 降下来。
-#                 例外命中时打印 warning 而不是让 job 失败，并写进报告。
+#   REPORT_FILE  额外把结论写成 key=value 行（给 release 的 BUILD-INFO.txt 用）
 #
 # 退出码：0 达标；1 超出基线（并打印是哪个文件）；2 用法错误。
 
@@ -42,15 +38,6 @@ usage() {
   echo "目录不存在: $BUNDLE_DIR" >&2
   exit 2
 }
-
-declare -A ALLOWED_GLIBC=()
-if [ -n "${ALLOW_GLIBC:-}" ]; then
-  IFS=',' read -r -a _allow_entries <<<"$ALLOW_GLIBC"
-  for _entry in "${_allow_entries[@]}"; do
-    [ -n "$_entry" ] || continue
-    ALLOWED_GLIBC["${_entry%%:*}"]="${_entry##*:}"
-  done
-fi
 
 # sort -V：2.9 < 2.10 < 2.35，纯字典序会排错
 vmax() { sort -V | tail -1; }
@@ -90,7 +77,6 @@ worst_glibcxx=''
 worst_glibcxx_file=''
 bad_glibc=()
 bad_glibcxx=()
-exceptions=()
 total=0
 
 while IFS= read -r -d '' file; do
@@ -107,14 +93,7 @@ while IFS= read -r -d '' file; do
       worst_glibc="$g"
       worst_glibc_file="$rel"
     fi
-    if gt_version "$g" "$MAX_GLIBC"; then
-      allowed="${ALLOWED_GLIBC[$rel]:-}"
-      if [ -n "$allowed" ] && ! gt_version "$g" "$allowed"; then
-        exceptions+=("$rel (GLIBC_$g，例外上限 $allowed)")
-      else
-        bad_glibc+=("$rel (GLIBC_$g)")
-      fi
-    fi
+    gt_version "$g" "$MAX_GLIBC" && bad_glibc+=("$rel (GLIBC_$g)")
   fi
 
   if [ -n "$cxx" ]; then
@@ -132,11 +111,6 @@ echo "实测最高 GLIBC:    ${worst_glibc:-none}${worst_glibc:+   }${worst_glib
 echo "实测最高 GLIBCXX:  ${worst_glibcxx:-none}${worst_glibcxx:+   }${worst_glibcxx_file:-n/a}"
 
 status=0
-if [ "${#exceptions[@]}" -gt 0 ]; then
-  echo
-  echo "::warning::以下文件超出基线 $MAX_GLIBC，但属于第三方预编译库的既有上限："
-  printf '  - %s\n' "${exceptions[@]}"
-fi
 if [ "${#bad_glibc[@]}" -gt 0 ]; then
   status=1
   echo
@@ -155,7 +129,6 @@ if [ -n "${REPORT_FILE:-}" ]; then
     echo "min-glibc=${worst_glibc:-unknown}"
     echo "min-glibcxx=${worst_glibcxx:-unknown}"
     echo "glibc-baseline=$MAX_GLIBC"
-    echo "glibc-exceptions=${exceptions[*]:-none}"
     echo "glibcxx-baseline=$MAX_GLIBCXX"
     echo "elf-files=$total"
   } >"$REPORT_FILE"

@@ -157,12 +157,15 @@ REPORT_FILE=glibc-baseline-linux-x64.txt \
 `GLIBCXX_x.y`（本质上就是 `readelf -V | grep -o 'GLIBC_[0-9.]*' | sort -V | tail -1`，
 没有 `readelf` 时退回 `grep -aoh`），超过基线就列出是哪几个文件并退出 1。
 
-第三方预编译库不在这条规则覆盖范围内：`lib/libsqlcipher.so` 来自 `sqlite3` 3.5.0 的
-hook（直接下载上游编好的二进制，不在构建机上编译），上游用了新发行版，硬顶
-`GLIBC_2.38`。它是桌面版的消息数据库，所以**桌面版实际下限是 glibc 2.38（Ubuntu 24.04+
-/ Debian 13+）**；CI 用 `ALLOW_GLIBC='lib/libsqlcipher.so:2.38'` 把这一条降级成
-warning，其余文件仍然按 2.35 卡。要在 22.04 上跑，需要改用 `sqlite3` 的
-`source: source` 模式自己编 SQLCipher（需要 OpenSSL 开发包），目前没有做。
+逐条覆盖不到的是**预编译库**：`lib/libsqlcipher.so` 来自 `sqlite3` 包的 hook，它直接下载
+上游编好的二进制（不在构建机上编译，runner 换版本对它无效）。所以除了钉 runner，还必须
+保证 `sqlite3` >= **3.6.0**：3.5.2 及以前的 Linux 二进制硬顶 `GLIBC_2.38`，3.6.0 起上游
+改用 glibc 2.34 构建。这层关系由 `pubspec.yaml` 的 `dependency_overrides` 钉住，
+理由和移除条件写在旁边；**升/降 sqlite3 前先核对**新版本的
+`libsqlcipher.{x64,arm64}.linux.so` 基线，对不上自检会直接挂在这个文件上。
+
+同理，产物里其他“下载来的”原生库也不能只靠 runner 兜底——自检失败时先看清单里
+是哪个文件，再判断它是 runner 现编的（改 runner / 包名）还是上游预编译的（改依赖版本）。
 
 运行时依赖（不打包，靠系统 apt）：
 

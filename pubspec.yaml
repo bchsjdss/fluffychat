@@ -145,3 +145,13 @@ flutter_launcher_icons:
 # 2. Always link an (upstream?) issue
 # 3. Explain how and when this can be removed (overrides must be temporarily)
 dependency_overrides:
+  # 只为了换掉 sqlite3 包自带的那份预编译 libsqlcipher.so。
+  # 3.5.2 及以前的 Linux 预编译二进制是在 glibc 2.38 的机器上编的（实测需 GLIBC_2.38），
+  # 而它是下载来的、不在 runner 上编译，所以把 linux job 钉到 ubuntu-22.04 也修不到它：
+  # 22.04 用户解包后 ldd lib/libsqlcipher.so 直接报 version `GLIBC_2.38' not found。
+  # 3.6.0 起上游改用 glibc 2.34 构建（实测最高 GLIBC_2.34，无 GLIBCXX 需求），回到基线内。
+  # SQLCipher 4.17.0 -> 4.19.0、SQLite 3.53.3 -> 3.53.4，仍是 4.x 默认参数（4096 / 256000），
+  # 已有加密库可直接打开，不需要迁移。
+  # 上游：https://github.com/simolus3/sqlite3.dart/releases/tag/sqlite3-3.6.0
+  # 移除条件：等 sqflite_common_ffi / matrix 之类把 sqlite3 自然抬到 >= 3.6.0 之后删掉这条。
+  sqlite3: 3.6.0
