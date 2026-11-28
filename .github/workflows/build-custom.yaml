@@ -38,8 +38,10 @@ jobs:
         continue-on-error: true
         run: |
           dart format --output=none --set-exit-if-changed \
+            lib/main.dart \
             lib/utils/bot_menu.dart \
             lib/utils/bot_card.dart \
+            lib/utils/desktop_audio.dart \
             lib/utils/desktop_tray.dart \
             lib/pages/chat/input_bar.dart \
             lib/pages/chat/chat.dart \
@@ -53,8 +55,10 @@ jobs:
       - name: Analyze changed files
         run: |
           flutter analyze \
+            lib/main.dart \
             lib/utils/bot_menu.dart \
             lib/utils/bot_card.dart \
+            lib/utils/desktop_audio.dart \
             lib/utils/desktop_tray.dart \
             lib/pages/chat/input_bar.dart \
             lib/pages/chat/chat.dart \
@@ -172,6 +176,16 @@ jobs:
       - run: flutter pub get
       - name: Build Linux bundle
         run: flutter build linux --release --target-platform linux-${{ matrix.arch }}
+      - name: Report libmpv availability
+        run: |
+          # media_kit needs libmpv at runtime for call and notification sounds.
+          # It is NOT bundled (its ffmpeg dependency tree is not portable), so
+          # only report it here: the app degrades to silent instead of crashing.
+          if ls /usr/lib/*/libmpv.so* /lib/*/libmpv.so* >/dev/null 2>&1; then
+            echo "libmpv present on this runner: $(ls /usr/lib/*/libmpv.so* 2>/dev/null | head -1)"
+          else
+            echo "::warning::libmpv not installed; Linux builds run silently until the user installs it (apt install libmpv2)"
+          fi
       - name: Archive
         run: |
           tar -czf fluffychat-linux-${{ matrix.arch }}.tar.gz \

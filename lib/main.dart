@@ -10,6 +10,7 @@ import 'dart:ui';
 import 'package:collection/collection.dart';
 import 'package:fluffychat/config/app_config.dart';
 import 'package:fluffychat/utils/client_manager.dart';
+import 'package:fluffychat/utils/desktop_audio.dart';
 import 'package:fluffychat/utils/desktop_tray.dart';
 import 'package:fluffychat/utils/error_reporter.dart';
 import 'package:fluffychat/utils/notification_background_handler.dart';
@@ -18,7 +19,6 @@ import 'package:fluffychat/utils/start_push_foreground_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_vodozemac/flutter_vodozemac.dart' as vod;
-import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:matrix/matrix.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -135,10 +135,16 @@ Future<void> startGui(List<Client> clients, SharedPreferences store) async {
   }
 
   if (PlatformInfos.isLinux || PlatformInfos.isWindows) {
-    JustAudioMediaKit.ensureInitialized();
+    // Never let audio (or a hung tray call) keep the first frame from being
+    // painted - both used to block startup and showed up as a black window.
+    ensureDesktopAudio();
     // Desktop IM client: keep running in the tray, closing the window only
     // hides it. Falls back to "close quits" if the tray cannot be created.
-    await DesktopTray.instance.init();
+    await DesktopTray.instance.init().timeout(
+      const Duration(seconds: 5),
+      onTimeout: () =>
+          Logs().w('[DesktopTray] init timed out, continuing without tray'),
+    );
   }
 
   // Preload first client
