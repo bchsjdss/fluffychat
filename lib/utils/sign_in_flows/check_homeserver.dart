@@ -3,6 +3,7 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import 'package:fluffychat/config/app_config.dart';
 import 'package:fluffychat/config/setting_keys.dart';
 import 'package:fluffychat/l10n/l10n.dart';
 import 'package:fluffychat/pages/sign_in/view_model/model/public_homeserver_data.dart';
@@ -28,15 +29,19 @@ Future<void> connectToHomeserverFlow(
   try {
     final homeserverInput = homeserverData.name!;
     var homeserver = Uri.parse(homeserverInput);
-    if (homeserver.scheme.isEmpty) {
+    // 注意：不能只判 scheme.isEmpty。
+    // Uri.parse('matrix.toolokai.com:23456') 会把 scheme 解成
+    // 'matrix.toolokai.com'（把带端口的 host 当成了 scheme），
+    // 于是这条分支不会走到，后面探测器就用了一个错得不能再错的 URI。
+    // 只有 http/https 才算真的写了协议。
+    if (homeserver.scheme != 'http' && homeserver.scheme != 'https') {
       homeserver = Uri.https(homeserverInput, '');
     }
     final l10n = L10n.of(context);
     final client = await Matrix.of(context).getLoginClient();
-    final (_, _, loginFlows, authMetadata) = await client.checkHomeserver(
-      homeserver,
-      fetchAuthMetadata: true,
-    );
+    final (_, _, loginFlows, authMetadata) = await client
+        .checkHomeserver(homeserver, fetchAuthMetadata: true)
+        .timeout(AppConfig.homeserverConnectTimeout);
 
     final regLink = homeserverData.regLink;
     final supportsSso = loginFlows.any((flow) => flow.type == 'm.login.sso');

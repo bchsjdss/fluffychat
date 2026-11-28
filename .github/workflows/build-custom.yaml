@@ -39,6 +39,11 @@ jobs:
         run: |
           dart format --output=none --set-exit-if-changed \
             lib/main.dart \
+            lib/config/app_config.dart \
+            lib/config/setting_keys.dart \
+            lib/pages/sign_in/sign_in_page.dart \
+            lib/pages/sign_in/view_model/sign_in_view_model.dart \
+            lib/utils/sign_in_flows/check_homeserver.dart \
             lib/utils/bot_menu.dart \
             lib/utils/bot_card.dart \
             lib/utils/desktop_audio.dart \
@@ -56,6 +61,11 @@ jobs:
         run: |
           flutter analyze \
             lib/main.dart \
+            lib/config/app_config.dart \
+            lib/config/setting_keys.dart \
+            lib/pages/sign_in/sign_in_page.dart \
+            lib/pages/sign_in/view_model/sign_in_view_model.dart \
+            lib/utils/sign_in_flows/check_homeserver.dart \
             lib/utils/bot_menu.dart \
             lib/utils/bot_card.dart \
             lib/utils/desktop_audio.dart \
@@ -68,11 +78,14 @@ jobs:
             lib/utils/matrix_sdk_extensions/filtered_timeline_extension.dart \
             lib/widgets/local_notifications_extension.dart \
             test/bot_menu_test.dart \
-            test/bot_card_test.dart
+            test/bot_card_test.dart \
+            test/login_homeservers_test.dart
       - name: Bot menu and bot card unit tests
         run: |
           flutter test test/bot_menu_test.dart
           flutter test test/bot_card_test.dart
+          # 登录页不能再退回 matrix.org / 远端列表
+          flutter test test/login_homeservers_test.dart
 
   android:
     runs-on: ubuntu-26.04

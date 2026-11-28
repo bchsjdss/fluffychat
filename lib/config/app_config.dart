@@ -10,6 +10,12 @@ abstract class AppConfig {
 
   static const Color chatColor = primaryColor;
   static const double messageFontSize = 16.0;
+  // 只预置我们自己的服务器（见 builtInHomeservers）。
+  //
+  // 这里仍然是 true，是为了保住登录页那个可以手输地址的输入框：
+  // 关闭它的语义是“不让用户连别人的服务器”，而在本代码库里它唯一可能的
+  // 落点就是禁用输入框 / 禁止手输地址，那样用户既改不了地址、也没法连备用
+  // 节点。真正把“内置列表只有一个”这件事收住的是 builtInHomeservers。
   static const bool allowOtherHomeservers = true;
   static const bool enableRegistration = true;
   static const bool hideTypingUsernames = false;
@@ -29,6 +35,13 @@ abstract class AppConfig {
       'https://ko-fi.com/post/How-to-use-end-to-end-encryption-in-FluffyChat-A5O725WDR5';
   static const String howDoIGetStickersTutorial =
       'https://ko-fi.com/post/How-to-add-a-sticker-pack-to-FluffyChat-N4N01OXATI';
+
+  /// 点“继续”后探测 homeserver 的超时上限。
+  ///
+  /// 被墙 / 挂掉的域名下，httpClient 可能长时间不返回，按钮就一直转圈。
+  /// 5 秒内必须给出结果（要么进下一步，要么报错）。
+  static const Duration homeserverConnectTimeout = Duration(seconds: 5);
+
   static const String appId = 'im.fluffychat.app';
   static const String appOpenUrlScheme = 'im.fluffychat';
   static const String appSsoUrlScheme = 'im.fluffychat.auth';
@@ -54,11 +67,14 @@ abstract class AppConfig {
     path: '/krille-chan/fluffychat/issues/new',
   );
 
-  static final Uri homeserverList = Uri(
-    scheme: 'https',
-    host: 'raw.githubusercontent.com',
-    path: 'krille-chan/fluffychat/refs/heads/main/recommended_homeservers.json',
-  );
+  // 登录 / 注册页内置的 homeserver 列表。
+  //
+  // 刻意写死、不联网：以前这份列表是 GET
+  // raw.githubusercontent.com/krille-chan/.../recommended_homeservers.json 拿的，
+  // 那条请求没有超时，域名不通时 future 永远不结束，AsyncSnapshot 一直停在
+  // waiting —— 登录页输入框 readOnly、列表处转圈，用户什么都做不了。
+  // 内置列表让登录页第一帧就是可交互的 done 状态。
+  static const List<String> builtInHomeservers = ['matrix.toolokai.com:23456'];
 
   static final Uri crashReportEndpoint = Uri(
     scheme: 'https',

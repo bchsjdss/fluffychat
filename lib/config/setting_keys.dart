@@ -6,6 +6,7 @@
 import 'dart:convert';
 
 import 'package:async/async.dart';
+import 'package:fluffychat/config/app_config.dart';
 import 'package:fluffychat/utils/platform_infos.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -53,7 +54,10 @@ enum AppSettings<T> {
   displayChatDetailsColumn('chat.fluffy.display_chat_details_column', false),
   // AppConfig-mirrored settings
   applicationName<String>('chat.fluffy.application_name', 'FluffyChat'),
-  defaultHomeserver<String>('chat.fluffy.default_homeserver', 'matrix.org'),
+  defaultHomeserver<String>(
+    'chat.fluffy.default_homeserver',
+    'matrix.toolokai.com:23456',
+  ),
   // colorSchemeSeed stored as ARGB int
   colorSchemeSeedInt<int>('chat.fluffy.color_scheme_seed', 0xFF5625BA),
   emojiSuggestionLocale<String>('emoji_suggestion_locale', ''),
@@ -133,6 +137,30 @@ enum AppSettings<T> {
       await store.setBool(
         AppSettings.doubleTapToReact.key,
         PlatformInfos.isMobile,
+      );
+    }
+
+    // 旧版本的默认服务器是 matrix.org，它已经写到用户的 preferences 里了。
+    // 只改代码里的默认值救不了这些安装：登录页读的是已落盘的旧值，仍然会去连
+    // 一个在部分网络里 TCP 443 直接超时的域名。所以这里把已落盘的空值 /
+    // matrix.org 迁移到内置服务器。
+    //
+    // 只在“旧值确实是坏的”时候写；值为 null 时不动，让 defaultValue（可能来自
+    // config.json / MDM 下发的平台配置）继续生效。
+    final storedDefaultHomeserver = store.getString(
+      AppSettings.defaultHomeserver.key,
+    );
+    if (storedDefaultHomeserver != null &&
+        (storedDefaultHomeserver.isEmpty ||
+            storedDefaultHomeserver == 'matrix.org')) {
+      await store.setString(
+        AppSettings.defaultHomeserver.key,
+        AppConfig.builtInHomeservers.first,
+      );
+      Logs().i(
+        'Migrated default homeserver '
+        '${storedDefaultHomeserver.isEmpty ? '(empty)' : storedDefaultHomeserver} -> '
+        '${AppConfig.builtInHomeservers.first}',
       );
     }
 

@@ -3,8 +3,6 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import 'dart:convert';
-
 import 'package:collection/collection.dart';
 import 'package:fluffychat/config/app_config.dart';
 import 'package:fluffychat/config/setting_keys.dart';
@@ -54,52 +52,53 @@ class SignInViewModel extends ValueNotifier<SignInState> {
     notifyListeners();
   }
 
-  Future<void> refreshPublicHomeservers() async {
-    notifyListeners();
-    value.publicHomeservers = AsyncSnapshot.waiting();
-    final defaultHomeserverData = PublicHomeserverData(
-      name: AppSettings.defaultHomeserver.value,
-    );
-    try {
-      final client = await matrixService.getLoginClient();
-      final response = await client.httpClient.get(AppConfig.homeserverList);
-      final json = jsonDecode(response.body) as Map<String, dynamic>;
-      final homeserverJsonList = json['public_servers'] as List;
+  /// 填充登录 / 注册页的 homeserver 列表。
+  ///
+  /// 这里刻意**不发任何网络请求**，全部由 [AppConfig.builtInHomeservers] 同步生成：
+  ///
+  /// 旧实现会 GET `AppConfig.homeserverList`（该常量已删除）去
+  /// raw.githubusercontent.com 拉 recommended_homeservers.json，而且没有超时。
+  /// 那个域名在部分网络里 TCP 443 直接超时，future 永远不 resolve，
+  /// AsyncSnapshot 就永远停在 waiting：登录页输入框 readOnly、列表处转圈 ——
+  /// 正是 Linux 版那个“一直转圈、输入框不可用”的故障。
+  ///
+  /// 现在的收敛方式是让 waiting 状态**不可能出现**：构造函数里直接算出 done
+  /// 状态，没有 await 点，也就没有“请求失败但状态没改回来”的窗口。
+  /// 将来若真要恢复远端列表，必须满足两条：请求带 ≤5s 超时，
+  /// 且 catch 里一定要把 AsyncSnapshot 从 waiting 改成 error 或回落到内置列表。
+  void refreshPublicHomeservers() {
+    final defaultHomeserver = AppSettings.defaultHomeserver.value;
+    final defaultHomeserverData = PublicHomeserverData(name: defaultHomeserver);
 
-      final publicHomeservers = homeserverJsonList
-          .map((json) => PublicHomeserverData.fromJson(json))
-          .toList();
+    final publicHomeservers = <PublicHomeserverData>[
+      for (final name in AppConfig.builtInHomeservers)
+        PublicHomeserverData(
+          name: name,
+          // 注册页会过滤掉 regMethod == null 的条目，内置服务器必须是可注册的，
+          // 否则注册页会拿到一个空列表。
+          regMethod: AppConfig.enableRegistration ? 'vanilla' : null,
+        ),
+    ];
 
-      if (signUp) {
-        publicHomeservers.removeWhere((server) {
-          return server.regMethod == null;
-        });
-      }
-
-      final defaultServer = publicHomeservers.singleWhereOrNull(
-        (server) => server.name == AppSettings.defaultHomeserver.value,
-      );
-
-      if (defaultServer == null) {
-        publicHomeservers.insert(0, defaultHomeserverData);
-      }
-
-      value.selectedHomeserver =
-          value.selectedHomeserver ?? publicHomeservers.first;
-      value.publicHomeservers = AsyncSnapshot.withData(
-        ConnectionState.done,
-        publicHomeservers,
-      );
-      notifyListeners();
-    } catch (e, s) {
-      Logs().w('Unable to fetch public homeservers...', e, s);
-      value.selectedHomeserver = defaultHomeserverData;
-      value.publicHomeservers = AsyncSnapshot.withData(ConnectionState.done, [
-        defaultHomeserverData,
-      ]);
-      notifyListeners();
+    if (!publicHomeservers.any((server) => server.name == defaultHomeserver)) {
+      publicHomeservers.insert(0, defaultHomeserverData);
     }
+
+    value.selectedHomeserver =
+        value.selectedHomeserver ??
+        publicHomeservers.singleWhereOrNull(
+          (server) => server.name == defaultHomeserver,
+        ) ??
+        publicHomeservers.first;
+    value.publicHomeservers = AsyncSnapshot.withData(
+      ConnectionState.done,
+      publicHomeservers,
+    );
     _filterHomeservers();
+    Logs().i(
+      'Using built-in homeservers (no network request): ${publicHomeservers.map((s) => s.name).join(', ')}',
+    );
+    notifyListeners();
   }
 
   void selectHomeserver(PublicHomeserverData? publicHomeserverData) {

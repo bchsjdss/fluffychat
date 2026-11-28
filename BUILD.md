@@ -10,6 +10,12 @@
 | `lib/pages/chat/input_bar.dart` | 输入 `/` 时，把服务端命令放在候选浮层顶部。点击后填入 `/cmd ` 并把光标放到末尾。 |
 | `lib/pages/chat/chat.dart` | `send()` 拦截器。命令在服务端菜单里时，跳过本地命令解析，直接发文本。 |
 | `test/bot_menu_test.dart` | 新增。菜单解析、去重、查找、排序的单元测试。 |
+| `lib/config/setting_keys.dart` | ① `defaultHomeserver` 默认值从 `matrix.org` 改为 `matrix.toolokai.com:23456`；② `AppSettings.init()` 里加迁移：已落盘的旧值（空 / `matrix.org`）也会被改写成内置服务器。 |
+| `lib/config/app_config.dart` | `homeserverList`（指向 raw.githubusercontent 的推荐服务器列表）删除，改为内置常量 `builtInHomeservers = ['matrix.toolokai.com:23456']`；新增 `homeserverConnectTimeout = 5s`。 |
+| `lib/pages/sign_in/view_model/sign_in_view_model.dart` | 列表改为同步生成，不再发任何网络请求，`AsyncSnapshot` 不会再停在 `waiting`。 |
+| `lib/pages/sign_in/sign_in_page.dart` | 输入框只在“本页正在登录”时 `readOnly`，不再因为列表加载而锁死；去掉列表区的 loading 分支。 |
+| `lib/utils/sign_in_flows/check_homeserver.dart` | `checkHomeserver` 加 5 秒超时；修正 `Uri.parse('host:port')` 把 host 当 scheme 的判定错误。 |
+| `test/login_homeservers_test.dart` | 新增。断言内置列表不含 `matrix.org`，旧值会被迁移。 |
 
 注意：原方案写的 `chat_view.dart` 里没有 `send()`。发送逻辑在 `lib/pages/chat/chat.dart` 的 `ChatController.send()`。
 

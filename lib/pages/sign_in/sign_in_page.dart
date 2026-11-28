@@ -60,11 +60,13 @@ class SignInPage extends StatelessWidget {
                   textAlign: .center,
                 ),
                 TextField(
+                  // 只在本页自己正在登录时锁输入框。以前还额外锁了
+                  // “publicHomeservers 仍在 waiting”这个条件，而列表一旦拉不下来
+                  // 就永远 waiting，用户就彻底没得输了。现在列表是内置的、
+                  // 同步就绪，这里也不再依赖它。
                   readOnly:
-                      state.publicHomeservers.connectionState ==
-                          ConnectionState.waiting ||
                       state.loginLoading.connectionState ==
-                          ConnectionState.waiting,
+                      ConnectionState.waiting,
                   controller: viewModel.filterTextController,
                   autocorrect: false,
                   keyboardType: TextInputType.url,
@@ -82,125 +84,114 @@ class SignInPage extends StatelessWidget {
                     hintText: L10n.of(context).searchOrEnterHomeserverAddress,
                   ),
                 ),
-                if (state.publicHomeservers.connectionState ==
-                    ConnectionState.done)
-                  Expanded(
-                    child: Material(
-                      borderRadius: BorderRadius.circular(
-                        AppConfig.borderRadius,
-                      ),
-                      clipBehavior: Clip.hardEdge,
-                      color: theme.colorScheme.surfaceContainerLow,
-                      child: RadioGroup<PublicHomeserverData>(
-                        groupValue: state.selectedHomeserver,
-                        onChanged: viewModel.selectHomeserver,
-                        child: ListView.builder(
-                          itemCount: publicHomeservers.length,
-                          itemBuilder: (context, i) {
-                            final server = publicHomeservers[i];
-                            final website = server.website;
-                            return RadioListTile(
-                              value: server,
-                              enabled:
-                                  state.loginLoading.connectionState !=
-                                  ConnectionState.waiting,
-                              title: Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(server.name ?? 'Unknown'),
-                                  ),
-                                  if (website != null)
-                                    SizedBox.square(
-                                      dimension: 32,
-                                      child: IconButton(
-                                        tooltip: website,
-                                        icon: const Icon(
-                                          Icons.open_in_new_outlined,
-                                          size: 16,
-                                        ),
-                                        onPressed: () =>
-                                            launchUrlString(website),
+                Expanded(
+                  child: Material(
+                    borderRadius: BorderRadius.circular(AppConfig.borderRadius),
+                    clipBehavior: Clip.hardEdge,
+                    color: theme.colorScheme.surfaceContainerLow,
+                    child: RadioGroup<PublicHomeserverData>(
+                      groupValue: state.selectedHomeserver,
+                      onChanged: viewModel.selectHomeserver,
+                      child: ListView.builder(
+                        itemCount: publicHomeservers.length,
+                        itemBuilder: (context, i) {
+                          final server = publicHomeservers[i];
+                          final website = server.website;
+                          return RadioListTile(
+                            value: server,
+                            enabled:
+                                state.loginLoading.connectionState !=
+                                ConnectionState.waiting,
+                            title: Row(
+                              children: [
+                                Expanded(child: Text(server.name ?? 'Unknown')),
+                                if (website != null)
+                                  SizedBox.square(
+                                    dimension: 32,
+                                    child: IconButton(
+                                      tooltip: website,
+                                      icon: const Icon(
+                                        Icons.open_in_new_outlined,
+                                        size: 16,
                                       ),
+                                      onPressed: () => launchUrlString(website),
                                     ),
-                                ],
-                              ),
-                              subtitle: Column(
-                                spacing: 4.0,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  if (server.features?.isNotEmpty == true)
-                                    Wrap(
-                                      spacing: 4.0,
-                                      runSpacing: 4.0,
-                                      children: [
-                                        ...?server.languages?.map(
-                                          (language) => Material(
-                                            borderRadius: BorderRadius.circular(
-                                              AppConfig.borderRadius,
-                                            ),
-                                            color: theme
-                                                .colorScheme
-                                                .tertiaryContainer,
-                                            child: Padding(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 6.0,
-                                                    vertical: 3.0,
-                                                  ),
-                                              child: Text(
-                                                language,
-                                                style: TextStyle(
-                                                  fontSize: 10,
-                                                  color: theme
-                                                      .colorScheme
-                                                      .onTertiaryContainer,
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                        ...server.features!.map(
-                                          (feature) => Material(
-                                            borderRadius: BorderRadius.circular(
-                                              AppConfig.borderRadius,
-                                            ),
-                                            color: theme
-                                                .colorScheme
-                                                .secondaryContainer,
-                                            child: Padding(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 6.0,
-                                                    vertical: 3.0,
-                                                  ),
-                                              child: Text(
-                                                feature,
-                                                style: TextStyle(
-                                                  fontSize: 10,
-                                                  color: theme
-                                                      .colorScheme
-                                                      .onSecondaryContainer,
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  Text(
-                                    server.description ?? 'A matrix homeserver',
                                   ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
+                              ],
+                            ),
+                            subtitle: Column(
+                              spacing: 4.0,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (server.features?.isNotEmpty == true)
+                                  Wrap(
+                                    spacing: 4.0,
+                                    runSpacing: 4.0,
+                                    children: [
+                                      ...?server.languages?.map(
+                                        (language) => Material(
+                                          borderRadius: BorderRadius.circular(
+                                            AppConfig.borderRadius,
+                                          ),
+                                          color: theme
+                                              .colorScheme
+                                              .tertiaryContainer,
+                                          child: Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 6.0,
+                                              vertical: 3.0,
+                                            ),
+                                            child: Text(
+                                              language,
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                color: theme
+                                                    .colorScheme
+                                                    .onTertiaryContainer,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      ...server.features!.map(
+                                        (feature) => Material(
+                                          borderRadius: BorderRadius.circular(
+                                            AppConfig.borderRadius,
+                                          ),
+                                          color: theme
+                                              .colorScheme
+                                              .secondaryContainer,
+                                          child: Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 6.0,
+                                              vertical: 3.0,
+                                            ),
+                                            child: Text(
+                                              feature,
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                color: theme
+                                                    .colorScheme
+                                                    .onSecondaryContainer,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                Text(
+                                  server.description ?? 'A matrix homeserver',
+                                ),
+                              ],
+                            ),
+                          );
+                        },
                       ),
                     ),
-                  )
-                else
-                  Center(child: CircularProgressIndicator.adaptive()),
+                  ),
+                ),
               ],
             ),
           ),
